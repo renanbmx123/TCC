@@ -1,3 +1,4 @@
+#include "AnalogIn.h"
 #include "BufferedSerial.h"
 #include "DHT/DHT.h"
 #include "DigitalInOut.h"
@@ -21,7 +22,7 @@
 #define DATA_SIZE 200            // B3000yte numbers of data size.
 #define SEND_RETRIES 10
 #define SAMPLES 5     // Read and send some samples to network.
-#define HEATER_TIME 20 // Time for MQ4 heat up.
+#define HEATER_TIME 15 // Time for MQ4 heat up.
 //#define WRITE_LOCAL_DATA             // For write local data on the board usb
 //storage.
 
@@ -71,12 +72,15 @@ void st_sleep();
 // using namespace XBeeLib;      // Namespace for XbeeLib
 DigitalIn on_sleep(p21); //   Xbee on sleep pin.
                          //   check sleep state.
-//DigitalOut _sleep_req(p22); //   Xbee on sleep pin.
 DigitalOut *_sleep_req; //   Xbee on sleep pin.
-DigitalOut mq4_heater(p17); // MQ4 heater power pin control.
-DigitalOut GpsPwrPin(p15);  // GPS power pin control`
-AnalogIn bat_pin(p16);      // Batery level read analog pin 16.
-AnalogIn piezo_sensor(p20); // Piezo sensor on analog pin 20.
+DigitalOut *mq4_heater; // MQ4 heater power pin control.
+DigitalOut *GpsPwrPin;
+AnalogIn   *bat_pin;
+AnalogIn   *piezo_sensor;
+//DigitalOut mq4_heater(p17); // MQ4 heater power pin control.
+//DigitalOut GpsPwrPin(p15);  // GPS power pin control`
+//AnalogIn bat_pin(p16);      // Batery level read analog pin 16.
+//AnalogIn piezo_sensor(p20); // Piezo sensor on analog pin 20.
 
 MQ4 mq4(p18); /*Gás sensor on analog pin 18.*/
 DHT dht_th(
@@ -100,10 +104,12 @@ float g[3] = {0, 0, 0} /*Gyroscope*/, acc[3] = {0, 0, 0} /*Accelerometer*/,
       mag[3] = {0, 0, 0} /*Magnetrometer*/,
       dht_t = 0 /*DHT22 temperature sensor*/,
       dht_h = 0 /*DHT22 humidity sensor*/, piezo = 0 /*Vibration sensor*/,
-      vbat = 5 /*Batery percentage*/, lat = 0 /*Latitude*/,
+      vbat = 0 /*Batery percentage*/, lat = 0 /*Latitude*/,
       lon = 0 /*Longitude*/, alt = 0 /*Altitude from gps module*/,
       Balt = 0 /*Altitude from barometer sensor*/,
-      speed = 0 /*Speed over the ground*/, Bpress = 0; /*Barometric pressure*/
+      speed = 0 /*Speed over the ground*/,
+      Bpress = 0 /*Barometric pressure*/,
+      piezo_value = 0;
 TinyGPSPlus tgps;
 MQ4_data_t MQ4_data; // Store gas sensor information.
 
@@ -116,11 +122,11 @@ void sleep_radio();
 void awake_radio();
 void sleepManager();
 void XbeeNetworkSearch();
+float piezo_read();
 void file_write(char *data_file);
 
 int main() {
   sm.previous_state = sm.current_state = ST_INIT;
-  //printf("Iniciando...\n");
   state_machine();
 }
 
@@ -182,13 +188,21 @@ void state_machine() {
 }
 void st_init() {
   // Initial configuration.
+  piezo_sensor = new AnalogIn(p20); 
+  _sleep_req   = new DigitalOut(p22); //   Xbee on sleep pin.
+  mq4_heater   = new DigitalOut (p17); 
+  GpsPwrPin    = new DigitalOut (p15);  
+  bat_pin      = new AnalogIn(p16);      
+  
+  GpsPwrPin->write(0);
+  mq4_heater->write(0);
   xbee_power_level = 0;
   XBeeLib::RadioStatus radioStatus = xbee.init();
   xbee.set_power_level(xbee_power_level);
   sm.mcu_sleep = new bool(false);
   MQ4_data_t MQ4_data; // Store gas sensor information.
-  _sleep_req = new DigitalOut(p22); //   Xbee on sleep pin.
-  // Configure radio and get id number.
+  
+    
   uint32_t serialn_low;
   uint64_t current_panid;
   uint16_t current_channel_mask;
@@ -229,8 +243,8 @@ void st_init() {
   
  
   _sleep_req = 0;
-  mq4_heater = 1; // Set heater on, for Mq4 sensor set up.
-  GpsPwrPin = 1; // Set gps on.
+  mq4_heater->write(1); // Set heater on, for Mq4 sensor set up.
+  GpsPwrPin->write(1); // Set gps on.
   ThisThread::sleep_for(std::chrono::seconds(HEATER_TIME));
   mq4.begin();               // Begin te R0 calculation and sensor calibration.
   sm.current_state = nextState; // Go to next state.
@@ -238,8 +252,6 @@ void st_init() {
 
 void st_con() {
   // whaiting for xbee join to network.
-  //   sm.previous_state = sm.current_state;
- 
   sm.conn_retries = 0; // Reset the count variable.
   xbee.set_power_level(xbee_power_level);
 
@@ -286,18 +298,18 @@ void st_rdata() {
   if (vbat > 4.85){
       maxPowerLevel = 4;
       sensor_change = 0;
-      sleep_time = TIMEOUT*2;
+      sleep_time = TIMEOUT*1;
   }
       
   else if (vbat > 4.7){
       maxPowerLevel = 3;
       sensor_change = 0;
-      sleep_time = TIMEOUT*4;
+      sleep_time = TIMEOUT*2;
   }  
   else if(vbat > 4.65){
       maxPowerLevel = 2;
       sensor_change = 1;
-      sleep_time = TIMEOUT*6;
+      sleep_time = TIMEOUT*4;
   }
   else if(vbat > 4.6){
       maxPowerLevel = 1;
@@ -308,7 +320,7 @@ void st_rdata() {
   else{
       sensor_change = 1;
       maxPowerLevel = 0;
-      sleep_time = TIMEOUT*10;
+      sleep_time = TIMEOUT*16;
   }
   // Reading GPS data...
   if(sensor_change == 1 and alternate_senor == 0){
@@ -356,7 +368,7 @@ void st_rdata() {
       "%04x,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.2f,%.2f,%.2f,%."
       "2f,%02d%02d%02d,%02d%02d%4d,%.3f,%.3f,%.2f,%c,%c,%.2f,%.2f,%.2f,%d,%d,%d,%d,%d,%d",
       id, g[0], g[1], g[2], acc[0], acc[1], acc[2], mag[0], mag[1], mag[2],
-      Bpress, dht_h, dht_t, MQ4_data.ch4, piezo_sensor.read(), tgps.time.hour(),
+      Bpress, dht_h, dht_t, MQ4_data.ch4, piezo_read(), tgps.time.hour(),
       tgps.time.minute(), tgps.time.second(), tgps.date.year(),
       tgps.date.month(), tgps.date.day(), tgps.location.lng(),
       tgps.location.lat(), tgps.speed.mps(), tgps.NorthSouth, tgps.EastWest,
@@ -394,14 +406,14 @@ void st_sleep() {
       std::chrono::seconds(
           sleep_time)); // Call this function every time when reach TIMEOUT value.
   if (sensor_change == 1 and alternate == 0 ){
-      GpsPwrPin = 1; // Set gps on.  
+      GpsPwrPin->write(1); // Set gps on.  
       alternate = 1;
   }else if(sensor_change == 1 and alternate == 1 ){
-      mq4_heater = 1; // Set heater on, for Mq4 sensor set up.
+      mq4_heater->write(1); // Set heater on, for Mq4 sensor set up.
       alternate = 0;
   }else{
-    mq4_heater = 1; // Set heater on, for Mq4 sensor set up.
-    GpsPwrPin = 1; // Set gps on.
+    mq4_heater->write(1); // Set heater on, for Mq4 sensor set up.
+    GpsPwrPin->write(1); // Set gps on.
   }
 
   _sleep_req->write(0);
@@ -465,8 +477,16 @@ void file_write(char *data_file) {
 float bat_level() { 
   float vbat = 0;
   for (int i = 0; i < 100;i++){
-      vbat += (bat_pin.read() * 5);
+      vbat += (bat_pin->read() * 5);
   }
   vbat = vbat/100;
   return vbat;
+}
+float piezo_read(){
+    float v = 0;
+    for (int i = 0; i < 50; i++){
+        v += piezo_sensor->read();
+    }
+    return v/50;
+    
 }
