@@ -366,7 +366,7 @@ void st_rdata() {
   sendDataSize = sprintf(
       (char *)data,
       "%04x,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.2f,%.2f,%.2f,%."
-      "2f,%02d%02d%02d,%02d%02d%4d,%.3f,%.3f,%.2f,%c,%c,%.2f,%.2f,%.2f,%d,%d,%d,%d,%d,%d",
+      "2f,%02d%02d%02d,%04d%02d%2d,%.3f,%.3f,%.2f,%c,%c,%.2f,%.2f,%.2f,%d,%d,%d,%d,%d,%d",
       id, g[0], g[1], g[2], acc[0], acc[1], acc[2], mag[0], mag[1], mag[2],
       Bpress, dht_h, dht_t, MQ4_data.ch4, piezo_read(), tgps.time.hour(),
       tgps.time.minute(), tgps.time.second(), tgps.date.year(),
